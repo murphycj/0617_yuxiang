@@ -10,6 +10,15 @@ g1 <- as.character(samples[samples$medium=="Met+Hcy-","name"])
 g2 <- as.character(samples[samples$medium=="Met-Hcy+","name"])
 samples <- samples[c(g1,g2),]
 
+sink("samples_compared.txt")
+cat("Group1\n")
+cat(paste(g1,collapse=", "))
+cat("\n")
+cat("Group2\n")
+cat(paste(g2,collapse=", "))
+cat("\n")
+sink()
+
 data <- read.csv("../../HTSeqCount/HTSeq.geneSymbols.counts.csv", header=T, row.names=1, check.names=FALSE)
 data <- data[,c(g1, g2)]
 data <- data[rowSums(data)>=2,]
