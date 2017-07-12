@@ -2,27 +2,15 @@
 
 basedir = "$baseDir"
 
-params.reference = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/GRCh38/Homo_sapiens.GRCh38.dna.primary_assembly.fa'
-params.reference_dict = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/GRCh38/Homo_sapiens.GRCh38.dna.primary_assembly.dict'
-params.reference_fai = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/GRCh38/Homo_sapiens.GRCh38.dna.primary_assembly.fa.fai'
-params.gtf = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/GRCh38/Homo_sapiens.GRCh38.88.chr.gtf'
+params.reference = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/Homo_sapiens_assembly19.fasta'
+params.reference_dict = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/Homo_sapiens_assembly19.dict'
+params.reference_fai = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/Homo_sapiens_assembly19.fasta.fai'
+params.gtf = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/Homo_sapiens.GRCh37.85.gtf'
+params.dbsnp = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/dbsnp/human_9606_b149_GRCh37p13/VCF/common_all_20161121.vcf.gz'
 
-params.star = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/STAR-2.5.3a/bin/Linux_x86_64_static/STAR'
-params.starRef = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/GRCh38/star50'
+params.starRef = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/star99'
 params.outFilterMismatchNmax = 5
 params.star_threads = 6
-
-params.dexseq = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/DEXSeq/python_scripts/dexseq_count.py'
-params.fastqscreen = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/fastq_screen_v0.10.0/fastq_screen'
-params.fastqscreen_conf = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/fastq_screen_v0.10.0/fastq_screen.conf'
-params.java = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/jre1.8.0_25/bin/java'
-params.fastqc = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/FastQC/fastqc'
-params.seqpy = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/seqpy/bin/'
-params.samtools = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/samtools-1.1/samtools'
-params.picard = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/picard-tools-1.137/picard.jar'
-params.htseq = '~/.local/bin/htseq-count'
-params.flagstat = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/seqpy/bin/flagstat.py'
-params.cufflinks = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/cufflinks-2.2.1.Linux_x86_64/cufflinks'
 
 fqfiles = Channel.create()
 fqfiles2 = Channel.create()
@@ -63,12 +51,17 @@ process star {
     set prefix, file(read1), file(read2) from fqfiles3
 
   output:
-    set prefix, file('*bam'), file('*bam.bai') into star_out
-    set prefix, file('*bam'), file('*bam.bai') into star_out2
-    set prefix, file('*bam'), file('*bam.bai') into star_out3
-    set prefix, file('*bam'), file('*bam.bai') into star_out4
-    set file('*Log.progress.out'), file('*Log.out'), file('*Chimeric.out.junction'), file('*Chimeric.out.sam') into star_log
-    file('*Log.final.out') into star_log_Final
+    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out
+    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out2
+    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_insert_size
+    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out3
+    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_varscan_snp
+    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_varscan_indel
+    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_mutect
+    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_pindel
+    file('*Log.progress.out') into star_out_progress
+    file('*Log.final.out') into star_log
+    file('*SJ.out.tab') into star_out_SJ
     val prefix into samples_star_qc
 
 
@@ -108,7 +101,7 @@ process star {
     --chimOutType SeparateSAMold \
     --chimSegmentMin 1
 
-   ${params.samtools} index ${prefix}*.bam
+   ${params.samtools} index ${prefix}.Aligned.sortedByCoord.out.bam
    rm -rf 1pass
    rm -rf star_2pass
  """
@@ -120,7 +113,7 @@ process samtools_flagstat {
   storeDir "${baseDir}/SamtoolsFlagstat/${prefix}"
 
   input:
-    set prefix, file(bam_file), file(bam_index_file) from star_out
+    set prefix, file(bam_file), file(bam_index_file) from gatk_out
 
   output:
     file('*flagstat') into flagstat_out
@@ -155,7 +148,7 @@ process cufflinks {
   storeDir "${baseDir}/Cufflinks/${prefix}"
 
   input:
-    set prefix, file(bam_file), file(bam_bai_file) from star_out2
+    set prefix, file(bam_file), file(bam_bai_file) from gatk_out2
   output:
     set prefix, file('*genes.fpkm_tracking'), file('*isoforms.fpkm_tracking'), file('*skipped.gtf'), file('*transcripts.gtf') into cufflinks_out
     file('*genes.fpkm_tracking') into cufflinks_out_genes
@@ -210,7 +203,7 @@ process htseq_reads {
   storeDir "${baseDir}/HTSeqCount/${prefix}"
 
   input:
-    set prefix, file(bam_file), file(bam_index_file) from star_out3
+    set prefix, file(bam_file), file(bam_index_file) from gatk_out3
 
   output:
     file('*count') into htseq_reads_out
@@ -249,7 +242,7 @@ process combine_star_qc {
   storeDir "${baseDir}/STAR/"
 
   input:
-    file log_files from star_log_Final.toList()
+    file log_files from star_log.toList()
     val all_samples from samples_star_qc.toList()
 
   output:
