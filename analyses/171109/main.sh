@@ -2,6 +2,7 @@ date=171109
 
 ln /Users/charlesmurphy/Desktop/Research/0617_yuxiang/results/RNAseq_1117/Cufflinks/genes-symbols-fpkm.csv $date.genes-symbols-fpkm.csv
 ln /Users/charlesmurphy/Desktop/Research/0617_yuxiang/results/RNAseq_1117/UnsupervisedAnalyses/VST/PCA/all/PC1PC2.pdf $date.PC1PC2.pdf
+ln /Users/charlesmurphy/Desktop/Research/0617_yuxiang/results/RNAseq_1117/UnsupervisedAnalyses/VST/PCA/all/PC-percent-variance.pdf $date.PC-percent-variance.pdf
 ln /Users/charlesmurphy/Desktop/Research/0617_yuxiang/results/RNAseq_1117/STAR/STAR.QC.csv $date.STAR.QC.csv
 
 ln /Users/charlesmurphy/Desktop/Research/0617_yuxiang/results/RNAseq_1117/DESeq2/P-S-HCY_vs_P-R-HCY/P-S-HCY_vs_P-R-HCY/P-S-HCY_vs_P-R-HCY_results.csv $date.P-S-HCY_vs_P-R-HCY_results.csv
