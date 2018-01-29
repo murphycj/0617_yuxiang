@@ -6,6 +6,7 @@ params.reference = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/
 params.reference_dict = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/Homo_sapiens_assembly19.dict'
 params.reference_fai = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/Homo_sapiens_assembly19.fasta.fai'
 params.gtf = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/Homo_sapiens.GRCh37.85.gtf'
+params.dbsnp = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/dbsnp/human_9606_b149_GRCh37p13/VCF/common_all_20161121.vcf.gz'
 
 params.starRef = '/athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/star99'
 params.outFilterMismatchNmax = 5
@@ -40,21 +41,17 @@ process fastqc {
 
 process star {
   maxForks 6
-
   storeDir "${baseDir}/STAR/${prefix}"
 
   input:
     set prefix, file(read1), file(read2) from fqfiles3
 
   output:
-    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out
-    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out2
-    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_insert_size
-    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out3
-    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_varscan_snp
-    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_varscan_indel
-    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_mutect
-    set prefix, file('*.bam'), file('*.bam.bai') into gatk_out_pindel
+    set prefix, file('*.gatk.bam'), file('*.gatk.bam.bai') into gatk_out
+    set prefix, file('*.gatk.bam'), file('*.gatk.bam.bai') into gatk_out2
+    set prefix, file('*.gatk.bam'), file('*.gatk.bam.bai') into gatk_out_insert_size
+    set prefix, file('*.gatk.bam'), file('*.gatk.bam.bai') into gatk_out3
+    set prefix, file('*.gatk.bam'), file('*.gatk.bam.bai') into gatk_out_mutect
     file('*Log.progress.out') into star_out_progress
     file('*Log.final.out') into star_log
     file('*SJ.out.tab') into star_out_SJ
@@ -100,6 +97,88 @@ process star {
    ${params.samtools} index ${prefix}.Aligned.sortedByCoord.out.bam
    rm -rf 1pass
    rm -rf star_2pass
+
+   ${params.java} -Xmx10g -jar \
+     ${params.picard} AddOrReplaceReadGroups \
+     VALIDATION_STRINGENCY=LENIENT \
+     I=${prefix}.Aligned.sortedByCoord.out.bam \
+     O=tmp.bam \
+     ID=${prefix} \
+     LB=NA \
+     PL=illumina \
+     PU=NA \
+     RGSM=${prefix}
+
+   ${params.samtools} index tmp.bam
+
+   ${params.java} -Xmx10g -jar \
+     ${params.picard} MarkDuplicates \
+     VALIDATION_STRINGENCY=LENIENT \
+     I=tmp.bam \
+     O=tmp2.bam \
+     REMOVE_DUPLICATES=false \
+     M=duplicates.bam
+
+   ${params.samtools} index tmp2.bam
+   rm tmp.bam*
+
+   ${params.java} -jar \
+     ${params.gatk} \
+     -T SplitNCigarReads \
+     -R ${params.reference} \
+     -I tmp2.bam \
+     -o tmp.bam \
+     -rf ReassignOneMappingQuality \
+     -RMQF 255 \
+     -RMQT 60 \
+     -U ALLOW_N_CIGAR_READS
+
+   ${params.samtools} index tmp.bam
+   rm tmp2.bam*
+
+   ${params.java} -Xmx10g -jar \
+     ${params.gatk} \
+     -T RealignerTargetCreator \
+     -R ${params.reference} \
+     -I tmp.bam \
+     -U ALLOW_N_CIGAR_READS \
+     -o forIndelRealigner.intervals \
+     -nt 4
+
+   ${params.java} -Xmx10g -jar \
+     ${params.gatk} \
+     -T IndelRealigner \
+     -R ${params.reference} \
+     -I tmp.bam \
+     -targetIntervals forIndelRealigner.intervals \
+     -o tmp2.bam
+
+   ${params.samtools} index tmp2.bam
+
+   ${params.java} -Xmx10g -jar \
+     ${params.gatk} \
+     -T BaseRecalibrator \
+     -R ${params.reference} \
+     -I tmp2.bam \
+     -o recal_data.table \
+     -knownSites ${params.dbsnp} \
+     -nct 4
+
+   ${params.java} -Xmx10g -jar \
+     ${params.gatk} \
+     -T PrintReads \
+     -R ${params.reference} \
+     -I tmp2.bam \
+     --BQSR recal_data.table \
+     -o tmp3.bam
+
+   ${params.samtools} index tmp3.bam
+
+   python ${params.seqpy}/filter_bad_cigar.py \
+     --infile tmp3.bam \
+     --out ${prefix}.gatk.bam
+
+   ${params.samtools} index ${prefix}.gatk.bam
  """
 }
 
@@ -248,5 +327,94 @@ process combine_star_qc {
     --files ${log_files} \
     --samples ${all_samples.join(" ")} \
     --out STAR.QC.csv
+  """
+}
+
+process mutect {
+
+  storeDir "${baseDir}/Mutect/${prefix}"
+  scratch true
+  executor 'sge'
+  clusterOptions '-l h_vmem=2G -pe smp 12 -l h_rt=96:00:00 -l athena=true'
+
+  input:
+    set prefix, file(bam_file), file(bam_index_file) from gatk_out_mutect
+
+  output:
+    set prefix, file('*vcf') into mutect_out
+
+  """
+  rsync -L ${bam_file} tmp.bam
+  rsync -L ${bam_index_file} tmp.bam.bai
+
+  ~/chm2059/lib/gatk-4.0.0.0/gatk \
+    Mutect2 \
+    --reference /athena/elementolab/scratch/chm2059/from_dat02/chm2059/data/refdata/hg19_gatk/Homo_sapiens_assembly19.fasta \
+    --input tmp.bam \
+    --tumor-sample ${prefix} \
+    --create-output-variant-index \
+    --min-base-quality-score 15 \
+    --output ${prefix}.vcf \
+    --native-pair-hmm-threads 12 \
+    --minimum-mapping-quality 20
+  """
+}
+
+process filter_mutect {
+
+  storeDir "${baseDir}/Mutect/${prefix}"
+
+  input:
+    set prefix, vcf from mutect_out
+
+  output:
+    file('*.filtered.vcf.gz') into filter_mutect_out
+    file('*.filtered.vcf.gz.tbi') into filter_mutect_out_tbi
+
+  """
+
+  ~/chm2059/lib/gatk-4.0.0.0/gatk FilterMutectCalls \
+    --variant ${vcf} \
+    --output tmp.vcf \
+    --base-quality-score-threshold 10 \
+    --tumor-lod 10 \
+    --max-events-in-region 4
+
+  awk -F '\t' '{if(\$0 ~ /\\#/) print; else if(\$7 == "germline_risk") print}' tmp.vcf > ${prefix}.filtered.vcf
+
+  ${params.bgzip} ${prefix}.filtered.vcf
+  ${params.tabix} ${prefix}.filtered.vcf.gz
+  """
+}
+
+vcfs_mutect = filter_mutect_out.toList()
+vcfs_mutect_tbi = filter_mutect_out_tbi.toList()
+
+process combine_mutect {
+
+  storeDir "${baseDir}/Mutect"
+
+  input:
+    file vcfs_mutect
+    file vcfs_mutect_tbi
+
+  output:
+    set file('mutect.vcf'), file('mutect.annotated.vcf') into combine_mutect_out2
+
+  """
+  export PATH=/athena/elementolab/scratch/chm2059/from_dat02/chm2059/lib/tabix-0.2.6/:$PATH
+
+  ${params.bcftools} merge -m none ${vcfs_mutect} > mutect.vcf
+
+  ${params.java} -Xmx16g -jar \
+    ${params.snpsift} annotate \
+    ${params.dbsnp} \
+    mutect.vcf \
+    | ${params.java} -Xmx16g -jar \
+    ${params.snpeff} eff \
+    -v GRCh37.75 -canon \
+    | ${params.java} -Xmx16g -jar \
+    ${params.snpsift} filter \
+    "! exists ID" > mutect.annotated.vcf
   """
 }
